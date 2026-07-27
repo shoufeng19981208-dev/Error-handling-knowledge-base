@@ -1,0 +1,302 @@
+
+TO层报错处理
+V1.0
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+一、头作业报错
+1.DataStage抽数的头作业
+	•	调度名为  inf_*_batch*
+	•	
+	•	
+	•	DataStage头作业分为两种：以time结尾为定时作业（空跑，基本不会报错）、以batch结尾为轮询作业（通过sql语句去源系统数据库找结束标识数据），轮询头作业报错了都是源系统结束标识数据未生成好，需要找源系统处理好后重跑头作业
+	•	
+	•	源系统推文件作业
+取文件作业分为oss取文件（轮询模块ok和轮询单表ok
+）、gtp推文件、ftp取文件
+2.1 oss取文件（模块ok）
+调度名涉及的系统如下
+ext_ifl_*_ready
+ext_cmk_*_ready
+ext_ifo_*_ready
+ext_dmk_*_ready
+ext_ifa_*_ready
+ext_ifs_*_ready
+ext_pqm_*_ready
+ext_ifp_*_ready
+ext_xxh_*_ready
+ext_ife_*_ready
+ext_xlr_*_ready
+ext_dcs_*_ready
+ext_iff_*_ready
+ext_ifc_*_ready
+ext_dcc_*_ready
+ext_acs_*_ready
+
+使用get_ready_oss.sh的shell去轮询模块ok文件，轮询成功后，后续的ext作业才会去取文件，需要找源系统说模块ok文件没好，等源系统处理好后重跑调度
+
+2.2 oss取文件（单表ok）
+调度名涉及的系统有如下（注意查看跑批命令是使用的get_file_oss_ok.sh）
+ext_ifl*
+ext_ifo*
+ext_cfc*
+ext_dmk*
+ext_amm*
+ext_ife*
+ext_pcs*
+ext_ifc*
+ext_mbs*
+ext_wis*
+ext_rpa*
+
+使用get_file_oss_ok.sh的shell去轮询单表ok文件，需要找源系统说单表ok文件没好，等源系统处理好后重跑调度
+
+2.3 gtp推文件
+Gtp有集成到数据交换平台（可使用调度配置依赖），但是存量的都没有合并到交换平台，新增的也不一定在交换平台，这部分跟调度是分开的，gtp会定时放好文件到数仓Nas盘，如有报错需详细看报错日志
+
+2.4 ftp取文件
+调度名涉及的系统有如下
+ext_crd* --零售条线
+ext_hrs* --运营条线
+
+使用shell去取的文件，并将文件进行改名，需要找源系统说文件没取到，等源系统处理好后重跑调度
+
+	•	抽数报错
+	•	DataStage查看报错日志
+生产服务器
+Ip： 132.1.96.38,132.1.96.39
+用户：edwuser
+1.1 ds作业未导入
+
+重新导入ds作业即可（编译看第三大点的2.1-2.4步骤）
+1.2 ds作业未编译
+
+重新编译即可（编译看第三大点的2.1-2.4步骤）
+
+1.3作业抽数报错
+	•	1.抽数日志如下，会显示一个DataStage作业的起始日志
+	•	
+	•	
+	•	通过（dsjob -lognewest 工程名 表名 ）命令可查出如下图所示的结束日志序号
+	•	例如：dsjob -lognewest edw_brp brp_salon_activity
+	•	
+	•	
+	•	通过（dsjob -logdetail 工程名 表名 起始序号 结束序号 |more）命令可显示本次抽数的具体日志
+	•	例如：dsjob -logdetail edw_brp brp_salon_activity 32 96 |more
+	•	
+	•	
+	•	4.按照序号顺序找到第一个FATAL,报错内容就在其下
+	•	
+	•	日志序号不变
+
+起始日志和结束日志一样，则需重新编译（编译看标题三的2.1-2.4步骤）
+
+	•	Oracle连不上
+通过如下步骤能获取源系统数据库的用户名、schema、密码、IP、实例名
+服务器连源系统数据库方式 sqlplus 用户名/密码@ip/实例名
+1.在edwuser服务器查看ext_config.conf配置（图中是配置两个源系统库，需要找到报错表在哪个源系统库抽的）
+cd /home/edwuser/edwscript/etc
+vi ext_config.conf
+查看表是否有指向数据库
+
+通过表指向去找对应数据库信息（如果没有表指向则直接用默认的数据库信息）
+
+src_ip IP
+src_port 端口号
+src_sid 自己定义的一个名字，一般为系统简称
+src_schema Oracle库的schema，一般跟用户名一样
+src_username 用户名
+src_password 密码配置
+
+在当前文档ext_config.conf配置中map_t_basicfield=map2表示map_t_basicfield这张表会从配置的map2这个库里面抽数，如果未配置执行则默认从配置的map这个库里面抽数
+
+2.通过服务器密码配置获取密码
+cd /home/edwuser/edwscript/etc
+vi passwd.conf
+
+
+
+1).passwd.conf配置文件[]中的map或map1要跟ext_config.conf中passwd.conf:map:src_password中的名字保持一致，就是通过这个参数来匹配密码
+
+2).解密
+解密 : python $ETL_HOME/package/utils/encryptutils.py dec 密文
+
+
+3.通过服务器配置获取ip和实例名
+cd /home/edwuser/edwscript/etc
+vi tnsnames.ora
+
+
+tnsnames.ora中开头的map或map1一定要跟ext_config.conf中src_sid = 定的名称一致，这两个文件就是通过这两个参数进行关联的
+
+3.1tnsnames.ora配置信息未连上
+
+3.2用户名或者密码错误
+
+3.3 ip错误
+
+
+3.4解决方案
+从ext_config.conf、passwd.conf、tnsnames.ora三个配置文件找出Oracle连接串信息
+在服务器通过sqlplus看是否能连接，不能连接再看网络是否通，如果不能连通则需要填网络打通申请单，否则就需找源系统要新的数据库连接信息，验证sqlplus能连接后修改配置文件
+sqlplus 用户名/密码@ip/实例名
+例如 sqlplus ssa/ssa@132.1.70.96/bimeta
+
+4.表不存在报错
+	•	
+	•	在服务器通过   sqlplus 用户名/密码@ip/实例名   去连源系统数据库
+	•	通过desc schema.源系统表名 命令查看表是否存在
+	•	
+	•	再去找源系统说给的这个库表不存在
+	•	字段不存在
+	•	
+	•	在服务器通过   sqlplus 用户名/密码@ip/实例名   去连源系统数据库
+	•	通过select 不存在字段 from schema.源系统表名 where rownum < 1; 命令查看表是否存在
+	•	
+	•	再去找源系统说给的这个库表的这个字段不存在
+	•	
+	•	空间满了
+	•	
+	•	删空间重新抽数
+	•	截取日志爆满
+原因为源系统数据量很大，而DataStage抽数varchar长度比源系统短，导致每条数据会有日志截取警告，从而日志爆满，基本都是源系统字段扩长未通知
+
+处理方案是把源系统表结构和数仓表结构对比，找到不一样的字段（报错信息有该字段），然后数仓DataStage(两台机器都需要)、ddl、dml、gp库表的该字段扩长，还需清空日志，然后重跑，虚拟机维护到位
+
+查看源系统和数仓表结构方法
+在服务器通过   sqlplus 用户名/密码@ip/实例名   去连源系统数据库
+通过desc schema.源系统表名 命令查看源系统表结构
+
+在服务器通过 psql -d njdwdb -h 159.1.41.222 -U labdata 去连GP数据库（生产ip为132.1.96.1）
+通过   \d schema.数仓表名  命令查看数仓表结构
+
+
+清日志方法
+su - dsadm
+uvsh
+LOGTO edw_aas
+SELECT * FROM DS_JOBS WHERE NAME ='aas_pr_mid';
+CLEAR.FILE RT_LOG18
+
+注意：生产132.1.96.38、132.1.96.39两台机器都需清一下
+8.快照过旧
+Message:ORA-01555:snapshot too old
+在抽数的时间段内源系统表数据更新了，导致快照过旧报错
+处理方案是重跑
+三、特殊字符报错
+1.0x00
+	•	
+	•	原因：数据文件存在不可见0x00特殊字符
+	•	解决方案：通过shell去掉0x00特殊字符，重跑T层即可
+	•	sh /home/edwuser/edwscript/script/shell/replace_0x00.sh 20221231 itl_pms_dxloanbal
+	•	处理完后需在生产T层调度跑批命令这块加上如上shell语句
+	•	
+	•	数仓默认分隔符
+/edwdata/ste/edw/input/20230331/aas
+数仓默认分隔符为^O，而某条数据刚好包含了^O，推文件需找源系统处理，DataStage抽数需按如下步骤处理
+2.1登录DataStage客户端对应系统
+生产host为pkedwpap01p 对应132.1.96.38服务器
+生产host为pkedwpap02p 对应132.1.96.39服务器
+用户和密码都为isadmin
+
+
+2.2找到对应作业，打开sql_in
+
+
+2.3加上去数仓默认分隔符逻辑
+replace(replace(replace(字段中文名,chr(10),''),chr(13),''),chr(15),'')
+
+2.4重新编译跑批
+
+
+注意：生产pkedwpap01p、pkedwpap02p两台DataStage都需要修改，编译完后作业的窗口一定要记得×掉,如果未×掉，下次再进相同的作业编译会出先作业被锁的情况
+
+解锁作业：
+su - dsadm
+uvsh
+LOGTO UV
+LIST.READU
+UNLOCK USER 33088 ALL
+
+
+	•	其他特殊字符
+需手动找到报错数据，联系源系统，DataStage无法通过replace去掉，则需要从源系统数据层面去解决
+
+三、回车换行报错
+
+出现missing date的报错基本都是字段数据有回车换行
+报错字段的上一个字段有回车换行
+少字段也是这个报错
+
+1.DataStage处理方法（增量算法可直接找到换行数据，手动删除）
+1.1登录DataStage客户端对应系统
+生产host为pkedwpap01p 对应132.1.96.38服务器
+生产host为pkedwpap02p 对应132.1.96.39服务器
+用户和密码都为isadmin
+
+
+1.2找到对应作业，打开sql_in
+
+
+1.3加上去回车换行逻辑 （注意是报错的上一个字段）
+replace(replace(字段中文名,chr(10),''),chr(13),'')
+
+1.4重新编译跑批
+
+注意：生产pkedwpap01p、pkedwpap02p两台DataStage都需要修改，编译完后作业的窗口一定要记得×掉,如果未×掉，下次再进相同的作业编译会出先作业被锁的情况
+
+解锁作业：
+su - dsadm
+uvsh
+LOGTO UV
+LIST.READU
+UNLOCK USER 33088 ALL
+
+
+2.推文件处理方法
+联系推文件源系统哪个字段有回车换行，叫他们处理好，重新推文件
+
+四、表结构不一致
+1.多字段
+	•	
+	•	Datastage一般不会多字段，除非开发有问题
+	•	推文件字段多了，叫源系统重新推
+	•	
+	•	注：当数据本身包含数仓默认分隔符的时候，也会报多字段报错，解决办法看第三大点，第2小点
+	•	字段类型不一致
+2.1源系统数值型字段扩长
+
+2.2源系统varchar类型字段扩长（该报错一般不会有，DataStage会截取）
+
+2.3解决办法
+定位到字段类型不一致字段，与源系统确认好后，手动将ds、dml/itl、gpTO表字段扩长，虚拟机维护到位
+
+	•	主键重复
+
+找到重复语句，跟源系统沟通是脏数据还是有用数据，脏数据叫源系统删除重新抽数即可，如果是有用数据则需要重新定主键开发
+六、404
+
+没有找到数据文件，用跑批命令去找数据文件，多出现在互金文件中

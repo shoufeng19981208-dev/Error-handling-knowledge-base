@@ -1,7 +1,10 @@
 package com.kb.error.controller;
 
+import com.kb.error.dto.MatchResult;
 import com.kb.error.entity.ErrorRecord;
 import com.kb.error.service.ErrorRecordService;
+import com.kb.error.service.ExcelImportService;
+import com.kb.error.service.SignatureExtractor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
@@ -24,6 +27,9 @@ public class ErrorRecordController {
     @Autowired
     private ErrorRecordService errorRecordService;
 
+    @Autowired
+    private ExcelImportService excelImportService;
+
     @Value("${file.upload.path:./uploads}")
     private String uploadPath;
 
@@ -38,6 +44,50 @@ public class ErrorRecordController {
         result.put("totalPages", pageResult.getTotalPages());
         result.put("currentPage", pageResult.getNumber());
         return result;
+    }
+
+    /**
+     * 智能日志匹配：粘贴整段报错日志，反向匹配知识库中的解决方案
+     */
+    @PostMapping("/match")
+    public MatchResult match(@RequestBody Map<String, String> body) {
+        return errorRecordService.matchByLog(body.get("logText"));
+    }
+
+    /**
+     * 从报错文本中提取特征关键字（录入页"自动提取"用）
+     */
+    @PostMapping("/extract-keywords")
+    public Map<String, Object> extractKeywords(@RequestBody Map<String, String> body) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("keywords", SignatureExtractor.extract(body.get("text")));
+        return result;
+    }
+
+    /**
+     * xlsx 批量导入（收集模板回收入库）
+     */
+    @PostMapping("/import")
+    public Map<String, Object> importExcel(@RequestParam("file") MultipartFile file) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        if (file.isEmpty()) {
+            result.put("success", false);
+            result.put("message", "文件为空");
+            return result;
+        }
+        String originalName = file.getOriginalFilename();
+        if (originalName != null && !originalName.toLowerCase().endsWith(".xlsx")) {
+            result.put("success", false);
+            result.put("message", "仅支持 .xlsx 文件，请使用收集模板");
+            return result;
+        }
+        try (java.io.InputStream in = file.getInputStream()) {
+            return excelImportService.importExcel(in);
+        } catch (Exception e) {
+            result.put("success", false);
+            result.put("message", "导入失败: " + e.getMessage());
+            return result;
+        }
     }
 
     @GetMapping("/{id}")
@@ -83,7 +133,9 @@ public class ErrorRecordController {
             return result;
         }
         try {
-            Path uploadDir = Paths.get(uploadPath);
+            // 必须转绝对路径：transferTo 底层的 Part.write 会把相对路径解析到 Tomcat 临时工作目录，
+            // 与 createDirectories 基于 JVM 工作目录创建的位置不一致，导致 FileNotFoundException
+            Path uploadDir = Paths.get(uploadPath).toAbsolutePath().normalize();
             if (!Files.exists(uploadDir)) {
                 Files.createDirectories(uploadDir);
             }

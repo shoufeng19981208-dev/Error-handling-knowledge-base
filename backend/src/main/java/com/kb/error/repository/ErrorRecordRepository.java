@@ -38,4 +38,15 @@ public interface ErrorRecordRepository extends JpaRepository<ErrorRecord, Long> 
      * 按状态查询
      */
     List<ErrorRecord> findByStatus(ErrorRecord.RecordStatus status);
+
+    /**
+     * 获取所有去重分类
+     */
+    @Query("SELECT DISTINCT e.category FROM ErrorRecord e ORDER BY e.category")
+    List<String> findDistinctCategories();
+
+    /**
+     * 标题是否已存在（批量导入去重用）
+     */
+    boolean existsByErrorTitle(String errorTitle);
 }

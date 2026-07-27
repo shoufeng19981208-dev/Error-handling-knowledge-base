@@ -11,7 +11,8 @@ import java.io.File;
 
 /**
  * 数据目录初始化器：在 Spring 启动最早阶段创建 data 和 uploads 目录，
- * 解决 Linux 离线部署时相对路径目录不存在导致 H2 报 Could not open file 的问题。
+ * 并清理异常中断残留的空 .mv.db 文件，
+ * 确保后续 Hibernate/H2 能正常初始化数据库。
  *
  * @author kb
  */
@@ -26,6 +27,10 @@ public class DataDirectoryInitializer implements ApplicationRunner {
         String userDir = System.getProperty("user.dir");
         ensureDir(userDir + File.separator + "data");
         ensureDir(userDir + File.separator + "uploads");
+
+        // 清理异常中断残留的空 .mv.db 文件
+        // 空文件会导致 H2 报 "Could not open file"，删除后让 H2 重建
+        cleanEmptyMvDbFiles(userDir + File.separator + "data");
     }
 
     private void ensureDir(String path) {
@@ -35,6 +40,29 @@ public class DataDirectoryInitializer implements ApplicationRunner {
                 log.info("创建目录: {}", dir.getAbsolutePath());
             } else {
                 log.error("无法创建目录: {}", dir.getAbsolutePath());
+            }
+        }
+    }
+
+    /**
+     * 清理空 .mv.db 文件（异常中断残留）
+     */
+    private void cleanEmptyMvDbFiles(String dataDirPath) {
+        File dataDir = new File(dataDirPath);
+        if (!dataDir.exists() || !dataDir.isDirectory()) {
+            return;
+        }
+        File[] files = dataDir.listFiles((dir, name) -> name.endsWith(".mv.db"));
+        if (files == null) {
+            return;
+        }
+        for (File file : files) {
+            if (file.isFile() && file.length() == 0) {
+                if (file.delete()) {
+                    log.warn("已删除异常中断残留的空数据库文件: {} ({} 字节)", file.getAbsolutePath(), file.length());
+                } else {
+                    log.error("无法删除残留空文件: {}, 请手动删除后重试", file.getAbsolutePath());
+                }
             }
         }
     }

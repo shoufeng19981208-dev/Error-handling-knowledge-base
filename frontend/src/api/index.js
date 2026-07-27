@@ -43,11 +43,28 @@ export function getCategories() {
   return api.get('/error-record/categories');
 }
 
+export function matchLog(logText) {
+  return api.post('/error-record/match', { logText });
+}
+
+export function extractKeywords(text) {
+  return api.post('/error-record/extract-keywords', { text });
+}
+
 export function uploadScreenshot(file) {
   var formData = new FormData();
   formData.append('file', file);
   return api.post('/error-record/upload-screenshot', formData, {
     headers: { 'Content-Type': 'multipart/form-data' }
+  });
+}
+
+export function importRecords(file) {
+  var formData = new FormData();
+  formData.append('file', file);
+  return api.post('/error-record/import', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 60000
   });
 }
 
