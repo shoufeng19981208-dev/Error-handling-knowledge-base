@@ -5,7 +5,9 @@ spring:
   application:
     name: error-knowledge-base
   datasource:
-    url: jdbc:h2:file:./data/errorkb;DB_CLOSE_DELAY=-1;MODE=MySQL
+    # H2 文件数据库: 存储在 user.dir/data/ 下，支持跨平台部署
+    # AUTO_SERVER=TRUE 防止多进程访问时的文件锁问题
+    url: jdbc:h2:file:./data/errorkb;DB_CLOSE_DELAY=-1;MODE=MySQL;AUTO_SERVER=TRUE
     driver-class-name: org.h2.Driver
     username: sa
     password:
@@ -25,7 +27,8 @@ spring:
 
 file:
   upload:
-    path: /Users/dingsf/Desktop/Codex/报错处理知识库/backend/uploads
+    # 上传目录相对启动脚本所在的工作目录。
+    path: ./uploads
 
 logging:
   level:

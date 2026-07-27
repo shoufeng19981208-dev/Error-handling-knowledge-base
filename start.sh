@@ -39,6 +39,10 @@ echo ""
 echo -e "${YELLOW}[1/2] 启动后端 (SpringBoot + H2)...${NC}"
 cd "$BACKEND_DIR"
 
+# 确保 data 和 uploads 目录存在
+mkdir -p "$BACKEND_DIR/data"
+mkdir -p "$BACKEND_DIR/uploads"
+
 if [ ! -f "$MVN_CMD" ]; then
     if command -v mvn &> /dev/null; then
         MVN_CMD="mvn"
