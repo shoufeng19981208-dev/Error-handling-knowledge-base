@@ -15,6 +15,7 @@
         </router-link>
         <nav class="header-nav">
           <router-link to="/" class="nav-link" exact-active-class="nav-link--active">首页</router-link>
+          <router-link to="/categories" class="nav-link" active-class="nav-link--active">分类配置</router-link>
           <router-link to="/add" class="nav-link nav-link--cta" active-class="nav-link--active">新增记录</router-link>
         </nav>
       </div>

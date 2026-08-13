@@ -1,7 +1,9 @@
 package com.kb.error.controller;
 
 import com.kb.error.dto.MatchResult;
+import com.kb.error.entity.CategoryConfig;
 import com.kb.error.entity.ErrorRecord;
+import com.kb.error.repository.CategoryConfigRepository;
 import com.kb.error.service.ErrorRecordService;
 import com.kb.error.service.ExcelImportService;
 import com.kb.error.service.SignatureExtractor;
@@ -16,8 +18,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 @RestController
@@ -26,6 +30,9 @@ public class ErrorRecordController {
 
     @Autowired
     private ErrorRecordService errorRecordService;
+
+    @Autowired
+    private CategoryConfigRepository categoryConfigRepository;
 
     @Autowired
     private ExcelImportService excelImportService;
@@ -121,7 +128,13 @@ public class ErrorRecordController {
 
     @GetMapping("/categories")
     public List<String> getCategories() {
-        return errorRecordService.getAllCategories();
+        // 合并：配置中启用的分类 + 报错记录中实际存在但未配置的分类（保证历史数据可选）
+        Set<String> names = new LinkedHashSet<>();
+        for (CategoryConfig config : categoryConfigRepository.findByEnabledTrueOrderBySortOrderAscIdAsc()) {
+            names.add(config.getName());
+        }
+        names.addAll(errorRecordService.getAllCategories());
+        return new java.util.ArrayList<>(names);
     }
 
     @PostMapping("/upload-screenshot")

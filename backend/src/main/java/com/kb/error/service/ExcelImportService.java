@@ -102,9 +102,9 @@ public class ExcelImportService {
                     errors.add(rowError(displayRow, title, "示例行，自动忽略"));
                     continue;
                 }
-                if (!StringUtils.hasText(title) || !StringUtils.hasText(category)) {
+                if (!StringUtils.hasText(title)) {
                     failed++;
-                    errors.add(rowError(displayRow, title, "缺少必填项（报错标题/所属分类）"));
+                    errors.add(rowError(displayRow, title, "缺少必填项（报错标题）"));
                     continue;
                 }
                 String titleKey = title.trim().toLowerCase();
@@ -120,9 +120,11 @@ public class ExcelImportService {
                 }
 
                 try {
+                    // 兼容模板中未填写所属分类的行：自动归入「其他」，避免整行导入失败
+                    String finalCategory = StringUtils.hasText(category) ? category.trim() : "其他";
                     ErrorRecord record = ErrorRecord.builder()
                             .errorTitle(title.trim())
-                            .category(category.trim())
+                            .category(finalCategory)
                             .errorContent(StringUtils.hasText(content) ? content : null)
                             .solutionSteps(StringUtils.hasText(steps) ? steps : null)
                             .keywords(StringUtils.hasText(keywords) ? keywords.trim() : null)
@@ -130,6 +132,9 @@ public class ExcelImportService {
                             .build();
                     errorRecordService.create(record);
                     imported++;
+                    if (!StringUtils.hasText(category)) {
+                        errors.add(rowError(displayRow, title, "未填写所属分类，已自动归入「其他」"));
+                    }
                 } catch (Exception e) {
                     failed++;
                     errors.add(rowError(displayRow, title, "保存失败: " + e.getMessage()));

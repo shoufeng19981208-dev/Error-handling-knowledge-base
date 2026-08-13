@@ -142,14 +142,25 @@
 
         <!-- 关键字 -->
         <div class="form-group">
-          <label class="form-label">
-            关键字
-            <span class="form-hint">（逗号分隔）</span>
-          </label>
+          <div class="form-label form-label--row">
+            <span>
+              关键字
+              <span class="form-hint">（逗号分隔，用于搜索匹配）</span>
+            </span>
+            <button
+              type="button"
+              class="btn-extract"
+              :disabled="!form.errorContent || extracting"
+              title="从报错内容中自动识别错误码、异常类名等特征"
+              @click="handleExtractKeywords"
+            >
+              {{ extracting ? '提取中...' : '从报错内容提取' }}
+            </button>
+          </div>
           <input
             v-model="form.keywords"
             class="form-input"
-            placeholder="逗号分隔多个关键字"
+            placeholder="例如：ORA-01555, 快照过旧, snapshot, 重跑"
             maxlength="1000"
           />
         </div>
@@ -190,7 +201,7 @@
 </template>
 
 <script>
-import { getRecordById, updateRecord, uploadScreenshot, getCategories } from '../api/index';
+import { getRecordById, updateRecord, uploadScreenshot, getCategories, extractKeywords } from '../api/index';
 
 export default {
   name: 'EditRecord',
@@ -208,7 +219,8 @@ export default {
       allCategories: [],
       filteredCategories: [],
       showCategoryDropdown: false,
-      submitting: false
+      submitting: false,
+      extracting: false
     };
   },
   async created() {
@@ -228,6 +240,34 @@ export default {
     }
   },
   methods: {
+    async handleExtractKeywords() {
+      if (!this.form.errorContent || this.extracting) return;
+      this.extracting = true;
+      try {
+        const res = await extractKeywords(this.form.errorContent);
+        const suggested = (res.keywords || []).slice(0, 10);
+        if (!suggested.length) {
+          this.$root.$emit('toast', { message: '未能从报错内容中识别出特征关键字，可手动填写', type: 'warning' });
+          return;
+        }
+        const existing = this.form.keywords
+          ? this.form.keywords.split(/[,，;；]/).map(s => s.trim()).filter(Boolean)
+          : [];
+        const merged = existing.slice();
+        suggested.forEach(k => {
+          if (!merged.some(m => m.toLowerCase() === k.toLowerCase())) merged.push(k);
+        });
+        this.form.keywords = merged.join(',').slice(0, 1000);
+        this.$root.$emit('toast', { message: '已提取 ' + suggested.length + ' 个特征关键字', type: 'success' });
+      } catch (e) {
+        this.$root.$emit('toast', {
+          message: '提取失败: ' + (e.response?.data?.message || e.message),
+          type: 'error'
+        });
+      } finally {
+        this.extracting = false;
+      }
+    },
     async fetchCategories() {
       if (this.allCategories.length > 0) return;
       try {

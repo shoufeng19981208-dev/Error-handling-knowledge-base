@@ -44,6 +44,10 @@ public final class SignatureExtractor {
     /** 中文失败语义 */
     private static final Pattern CN_FAIL_PATTERN = Pattern.compile("失败|错误|异常|超时|拒绝|无法");
 
+    /** 中文报错短语：如 连接失败、表空间不足、数据不存在（上下文词 + 失败语义词，用于关键字提取） */
+    private static final Pattern CN_PHRASE_PATTERN = Pattern.compile(
+            "(?:连接|登录|读取|写入|解析|加载|转换|查询|同步|校验|导入|导出|上传|下载|删除|更新|访问|获取|发送|接收|创建|执行|调用|采集|计算|合并|分割|替换|匹配|过滤|传输|拷贝|解压|压缩|启动|停止|初始化|配置|注册|注销|验证|提交|回滚|重试|连接池|数据库|表空间|快照|数据|文件|任务|作业|作业组|调度|脚本|索引|分区|权限|服务|进程|线程|内存|磁盘|网络|超时|超限|越界|溢出|冲突|丢失|缺少|重复|无效|非法|过期|未找到|不存在|不支持|不允许|不匹配|不一致|不足|失败|为空|为空值|为空字符串)\\s*(?:失败|错误|异常|超时|超限|越界|溢出|冲突|丢失|缺少|重复|无效|非法|过期|拒绝|无法|不存在|未找到|不允许|不匹配|不一致|不足|为空|为空值|为空字符串)");
+
     /** 单条文本最多提取的特征数 */
     private static final int MAX_SIGNALS = 15;
 
@@ -59,7 +63,7 @@ public final class SignatureExtractor {
 
     /**
      * 提取特征串（有序去重，大小写不敏感去重）
-     * <p>优先级：错误码 &gt; errno &gt; SQLSTATE &gt; 异常类名 &gt; 文件名 &gt; 标识符
+     * <p>优先级：错误码 &gt; errno &gt; SQLSTATE &gt; 异常类名 &gt; 文件名 &gt; 标识符 &gt; 中文报错短语
      */
     public static List<String> extract(String text) {
         List<String> signals = new ArrayList<>();
@@ -73,6 +77,7 @@ public final class SignatureExtractor {
         collect(signals, seen, text, EXCEPTION_PATTERN, 1, null);
         collect(signals, seen, text, FILE_PATTERN, 0, null);
         collect(signals, seen, text, IDENT_PATTERN, 0, null);
+        collect(signals, seen, text, CN_PHRASE_PATTERN, 0, null);
         return signals;
     }
 

@@ -20,6 +20,11 @@ const routes = [
     component: () => import('../views/EditRecord.vue')
   },
   {
+    path: '/categories',
+    name: 'Categories',
+    component: () => import('../views/CategoryManage.vue')
+  },
+  {
     path: '/detail/:id',
     name: 'Detail',
     component: () => import('../views/Detail.vue')

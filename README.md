@@ -9,7 +9,7 @@
 | 前端 | Vue | 2.6.x |
 | 后端 | Spring Boot | 2.7.18 |
 | JDK | Zulu OpenJDK | 1.8 |
-| 数据库 | H2（内存数据库） | — |
+| 数据库 | MySQL | 8.0 |
 | 构建工具 | Maven | 3.9 |
 | 编码规范 | 阿里巴巴 Java 开发手册 | — |
 
@@ -74,7 +74,17 @@ mvn spring-boot:run
 
 后端启动后访问：
 - API 服务：`http://localhost:8080`
-- H2 控制台：`http://localhost:8080/h2-console`（JDBC URL: `jdbc:h2:file:./data/errorkb`，用户名 `sa`，密码为空）
+
+> 数据库使用 MySQL（库名 `errorkb`，账号密码见 `backend/src/main/resources/application.yml`），
+> 首次启动由 Hibernate 自动建表，空库时会自动写入初始化数据。
+
+## 部署与权限说明
+
+- 应用启动时会自动创建并修正 `uploads`（截图）与 `logs`（日志）目录的读写权限（POSIX 环境）。
+- 部署目录属主（如通过 `chown` 变更为其他用户后）与运行用户不一致时：
+  - 若部署目录对运行用户仍可写（属主为运行用户，或属组/其他含写权限），应用会自动适配，上传截图无需额外处理；
+  - 若部署目录对运行用户只读（如 `drwxr-xr-x` 且属主为其他用户），需将服务切换到目录属主用户运行，或执行
+    `chmod g+rwx` 相关目录。
 
 ### 前端
 

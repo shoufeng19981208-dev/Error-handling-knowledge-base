@@ -68,4 +68,21 @@ export function importRecords(file) {
   });
 }
 
+// ===== 分类配置管理 =====
+export function getCategoryConfigList() {
+  return api.get('/category-config');
+}
+
+export function createCategoryConfig(data) {
+  return api.post('/category-config', data);
+}
+
+export function updateCategoryConfig(id, data) {
+  return api.put('/category-config/' + id, data);
+}
+
+export function deleteCategoryConfig(id) {
+  return api.delete('/category-config/' + id);
+}
+
 export default api;

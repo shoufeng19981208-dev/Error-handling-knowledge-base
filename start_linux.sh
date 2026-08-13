@@ -40,6 +40,9 @@ check_java() {
 ensure_dirs() {
     mkdir -p "$DATA_DIR"
     mkdir -p "$UPLOAD_DIR"
+    # 兼容部署目录属主变更的场景：日志目录已存在但属主不同时，尽量补齐写权限
+    mkdir -p "$DEPLOY_DIR/logs"
+    chmod u+rwx,g+rwx "$DEPLOY_DIR/logs" 2>/dev/null || true
 }
 
 # ---- 检查 JAR 文件 ----
@@ -92,7 +95,7 @@ start() {
             echo ""
             echo -e "  前端页面:    ${GREEN}http://localhost:8080${NC}"
             echo -e "  API 接口:    ${GREEN}http://localhost:8080/api/error-record${NC}"
-            echo -e "  H2 控制台:   ${GREEN}http://localhost:8080/h2-console${NC}"
+            echo -e "  数据库:      ${GREEN}MySQL (errorkb)${NC}"
             echo ""
             echo -e "  日志文件:    ${LOG_FILE}"
             echo -e "${YELLOW}  使用 ./start_linux.sh stop 停止服务${NC}"

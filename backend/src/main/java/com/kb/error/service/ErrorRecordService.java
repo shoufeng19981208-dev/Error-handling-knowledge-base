@@ -54,9 +54,13 @@ public class ErrorRecordService {
      * @return 分页结果
      */
     public Page<ErrorRecord> search(String keyword, int page, int size) {
-        PageRequest pageRequest = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "updateTime"));
+        // 注意：searchByKeyword 为原生 SQL，排序已在 SQL 内完成（ORDER BY e.update_time DESC），
+        // 不能通过 Sort 传列名，否则 Spring Data 会按实体属性解析报 "No property 'update'"
+        PageRequest pageRequest = PageRequest.of(page, size);
         if (!StringUtils.hasText(keyword)) {
-            return errorRecordRepository.findAll(pageRequest);
+            // 空关键词：走 JPA 派生查询，用实体属性名 updateTime 降序（与原生 SQL 排序保持一致）
+            PageRequest sortedRequest = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "updateTime"));
+            return errorRecordRepository.findAll(sortedRequest);
         }
         return errorRecordRepository.searchByKeyword(keyword.trim(), pageRequest);
     }
@@ -254,7 +258,7 @@ public class ErrorRecordService {
         for (MatchResult.MatchItem item : result.getMatches()) {
             matchedIds.add(item.getRecord().getId());
         }
-        PageRequest pageRequest = PageRequest.of(0, 20, Sort.by(Sort.Direction.DESC, "updateTime"));
+        PageRequest pageRequest = PageRequest.of(0, 20);
         for (ErrorRecord record : errorRecordRepository.searchByKeyword(log, pageRequest)) {
             if (matchedIds.contains(record.getId())) {
                 continue;

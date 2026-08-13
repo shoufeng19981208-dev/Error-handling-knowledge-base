@@ -1,6 +1,8 @@
 package com.kb.error.config;
 
+import com.kb.error.entity.CategoryConfig;
 import com.kb.error.entity.ErrorRecord;
+import com.kb.error.repository.CategoryConfigRepository;
 import com.kb.error.repository.ErrorRecordRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.CommandLineRunner;
@@ -8,6 +10,7 @@ import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -21,13 +24,39 @@ public class DataInitializer implements CommandLineRunner {
     @Autowired
     private ErrorRecordRepository errorRecordRepository;
 
+    @Autowired
+    private CategoryConfigRepository categoryConfigRepository;
+
     @Override
     public void run(String... args) {
+        initCategories();
         if (errorRecordRepository.count() > 0) {
             return;
         }
         List<ErrorRecord> records = buildInitialData();
         errorRecordRepository.saveAll(records);
+    }
+
+    /**
+     * 初始化默认分类配置（仅当配置表为空时）
+     */
+    private void initCategories() {
+        if (categoryConfigRepository.count() > 0) {
+            return;
+        }
+        LocalDateTime now = LocalDateTime.now();
+        List<String> defaults = Arrays.asList("TO层报错", "数据交换平台", "其他");
+        int order = 1;
+        for (String name : defaults) {
+            CategoryConfig config = new CategoryConfig();
+            config.setName(name);
+            config.setDescription("");
+            config.setSortOrder(order++);
+            config.setEnabled(true);
+            config.setCreateTime(now);
+            config.setUpdateTime(now);
+            categoryConfigRepository.save(config);
+        }
     }
 
     private List<ErrorRecord> buildInitialData() {
