@@ -40,6 +40,9 @@ public class UploadDirectoryInitializer implements ApplicationRunner {
     @Value("${file.upload.path:./uploads}")
     private String uploadPath;
 
+    /** 文档管理专用子目录 */
+    private static final String DOCUMENTS_SUBDIR = "documents";
+
     @Override
     public void run(ApplicationArguments args) {
         try {
@@ -49,6 +52,12 @@ public class UploadDirectoryInitializer implements ApplicationRunner {
                 log.info("创建上传目录: {}", uploadDir);
             }
             fixPermissions(uploadDir);
+            Path documentDir = uploadDir.resolve(DOCUMENTS_SUBDIR);
+            if (!Files.exists(documentDir)) {
+                Files.createDirectories(documentDir);
+                log.info("创建文档目录: {}", documentDir);
+            }
+            fixPermissions(documentDir);
             if (Files.isWritable(uploadDir)) {
                 log.info("上传目录就绪且可写: {}", uploadDir);
             } else {

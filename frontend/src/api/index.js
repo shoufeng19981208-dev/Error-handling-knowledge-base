@@ -85,4 +85,22 @@ export function deleteCategoryConfig(id) {
   return api.delete('/category-config/' + id);
 }
 
+// ===== 文档管理 =====
+export function getDocuments() {
+  return api.get('/documents');
+}
+
+export function uploadDocument(file) {
+  var formData = new FormData();
+  formData.append('file', file);
+  return api.post('/documents', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 120000
+  });
+}
+
+export function deleteDocument(id) {
+  return api.delete('/documents/' + id);
+}
+
 export default api;
