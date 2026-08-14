@@ -26,6 +26,10 @@ file:
   upload:
     path: ./uploads
 
+preview:
+  cache:
+    path: ./preview-cache
+
 logging:
   level:
     com.kb: debug

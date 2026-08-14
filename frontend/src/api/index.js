@@ -104,7 +104,7 @@ export function deleteDocument(id) {
 }
 
 export function getDocumentPreview(id) {
-  return api.get('/documents/' + id + '/preview');
+  return api.get('/documents/' + id + '/preview', { timeout: 180000 });
 }
 
 export default api;

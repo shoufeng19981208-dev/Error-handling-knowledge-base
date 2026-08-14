@@ -70,6 +70,8 @@
 
           <iframe v-else-if="previewKind === 'pdf'" :src="previewDoc.url" class="preview-iframe"></iframe>
 
+          <iframe v-else-if="previewPdfUrl" :src="previewPdfUrl" class="preview-iframe"></iframe>
+
           <div v-else-if="previewHtml" class="preview-html-wrap">
             <iframe class="preview-iframe" :srcdoc="previewHtml"></iframe>
           </div>
@@ -166,6 +168,7 @@ export default {
       previewDoc: null,
       previewKind: '',
       previewLoading: false,
+      previewPdfUrl: '',
       previewHtml: '',
       previewSheets: [],
       activeSheet: 0,
@@ -246,6 +249,7 @@ export default {
     openPreview(doc) {
       this.previewDoc = doc;
       this.previewKind = this.fileKind(doc);
+      this.previewPdfUrl = '';
       this.previewHtml = '';
       this.previewSheets = [];
       this.activeSheet = 0;
@@ -265,6 +269,11 @@ export default {
         const res = await getDocumentPreview(this.previewDoc.id);
         if (res.kind === 'doc') {
           this.previewHtml = res.html || '';
+          this.previewLoading = false;
+          return;
+        }
+        if (res.kind === 'pdf') {
+          this.previewPdfUrl = res.url || '';
           this.previewLoading = false;
           return;
         }
@@ -329,6 +338,7 @@ export default {
       this.destroyPptxPreviewer();
       this.previewDoc = null;
       this.previewKind = '';
+      this.previewPdfUrl = '';
       this.previewHtml = '';
       this.previewSheets = [];
       this.activeSheet = 0;

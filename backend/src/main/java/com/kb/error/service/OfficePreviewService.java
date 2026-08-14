@@ -1,8 +1,9 @@
 package com.kb.error.service;
 
-import org.apache.poi.hslf.extractor.PowerPointExtractor;
 import org.apache.poi.hwpf.HWPFDocument;
 import org.apache.poi.hwpf.converter.WordToHtmlConverter;
+import org.apache.poi.hwpf.converter.PicturesManager;
+import org.apache.poi.hwpf.usermodel.PictureType;
 import org.apache.poi.ss.usermodel.BorderStyle;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.CellStyle;
@@ -21,6 +22,7 @@ import org.apache.poi.xssf.usermodel.XSSFColor;
 import org.apache.poi.xssf.usermodel.XSSFFont;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import javax.xml.transform.OutputKeys;
@@ -29,17 +31,24 @@ import javax.xml.transform.TransformerFactory;
 import javax.xml.transform.dom.DOMSource;
 import javax.xml.transform.stream.StreamResult;
 import java.io.IOException;
+import java.io.BufferedReader;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.StringWriter;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Office 文档服务端预览转换
@@ -63,7 +72,9 @@ public class OfficePreviewService {
     private static final String KIND_CLIENT = "client";
     private static final String KIND_DOC = "doc";
     private static final String KIND_EXCEL = "excel";
-    private static final String KIND_PPT = "ppt";
+
+    @Value("${preview.cache.path:./preview-cache}")
+    private String previewCachePath;
 
     /**
      * 根据文件实际内容生成预览结果
@@ -83,6 +94,9 @@ public class OfficePreviewService {
                 if ("xlsx".equals(ext) || "xls".equals(ext)) {
                     return excelPreview(file);
                 }
+                if ("pptx".equals(ext)) {
+                    return pdfPreview(file, storedName);
+                }
                 result.put("kind", KIND_CLIENT);
                 return result;
             }
@@ -95,7 +109,7 @@ public class OfficePreviewService {
                     return docPreview(file);
                 }
                 if ("ppt".equals(ext)) {
-                    return pptPreview(file);
+                    return pdfPreview(file, storedName);
                 }
             }
             result.put("kind", KIND_CLIENT);
@@ -145,13 +159,54 @@ public class OfficePreviewService {
         return result;
     }
 
-    private Map<String, Object> pptPreview(Path file) throws Exception {
-        Map<String, Object> result = new HashMap<>();
-        result.put("kind", KIND_PPT);
-        try (InputStream in = Files.newInputStream(file)) {
-            PowerPointExtractor extractor = new PowerPointExtractor(in);
-            result.put("text", extractor.getText() == null ? "" : extractor.getText());
+    /**
+     * 使用 LibreOffice 将 PPT/PPTX 转换为 PDF 预览（保真且不会缺页），转换结果缓存到 preview-cache
+     */
+    private Map<String, Object> pdfPreview(Path file, String storedName) throws Exception {
+        Path cacheDir = Paths.get(previewCachePath).toAbsolutePath().normalize();
+        if (!Files.exists(cacheDir)) {
+            Files.createDirectories(cacheDir);
         }
+        String base = storedName;
+        int dot = base.lastIndexOf('.');
+        if (dot >= 0) {
+            base = base.substring(0, dot);
+        }
+        String pdfName = base + ".pdf";
+        Path pdf = cacheDir.resolve(pdfName);
+        if (!Files.exists(pdf)) {
+            ProcessBuilder pb = new ProcessBuilder(
+                    "soffice", "--headless", "--convert-to", "pdf",
+                    "-env:UserInstallation=file:///tmp/errorkb-lo-" + UUID.randomUUID(),
+                    "--outdir", cacheDir.toString(),
+                    file.toAbsolutePath().toString());
+            pb.redirectErrorStream(true);
+            // 应用可能以受限用户运行，把 HOME 指到可写目录，避免 LibreOffice 写用户配置目录失败
+            pb.environment().put("HOME", "/tmp");
+            Process process = pb.start();
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    log.debug("soffice: {}", line);
+                }
+            }
+            boolean finished = process.waitFor(180, TimeUnit.SECONDS);
+            if (!finished) {
+                process.destroyForcibly();
+                throw new Exception("文档转换超时");
+            }
+            if (process.exitValue() != 0) {
+                throw new Exception("LibreOffice 转换失败，退出码 " + process.exitValue());
+            }
+            if (!Files.exists(pdf)) {
+                throw new Exception("未生成 PDF 文件");
+            }
+            log.info("PPT 已转换为 PDF: {}", pdf);
+        }
+        Map<String, Object> result = new HashMap<>();
+        result.put("kind", "pdf");
+        result.put("url", "/preview-cache/" + pdfName);
         return result;
     }
 
@@ -180,6 +235,18 @@ public class OfficePreviewService {
             org.w3c.dom.Document dom = javax.xml.parsers.DocumentBuilderFactory.newInstance()
                     .newDocumentBuilder().newDocument();
             WordToHtmlConverter converter = new WordToHtmlConverter(dom);
+            // 默认图片管理器不输出图片，这里把图片内嵌为 base64 data URI，保证预览时图片可见
+            converter.setPicturesManager(new PicturesManager() {
+                @Override
+                public String savePicture(byte[] content, PictureType pictureType, String suggestedName,
+                                          float widthInches, float heightInches) {
+                    String mime = pictureType.getMime();
+                    if (mime == null || mime.isEmpty()) {
+                        mime = "image/" + pictureType.getExtension().toLowerCase();
+                    }
+                    return "data:" + mime + ";base64," + Base64.getEncoder().encodeToString(content);
+                }
+            });
             converter.processDocument(document);
             org.w3c.dom.Document htmlDocument = converter.getDocument();
 
