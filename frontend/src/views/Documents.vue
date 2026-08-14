@@ -34,8 +34,8 @@
     <template v-else>
       <div v-if="documents.length" class="doc-list">
         <div v-for="doc in documents" :key="doc.id" class="doc-item">
-          <div class="doc-icon" :class="'doc-icon--' + fileKind(doc.originalName)">
-            <span>{{ iconLabel(fileKind(doc.originalName)) }}</span>
+          <div class="doc-icon" :class="'doc-icon--' + fileKind(doc)">
+            <span>{{ iconLabel(fileKind(doc)) }}</span>
           </div>
           <div class="doc-main">
             <div class="doc-name" :title="doc.originalName" @click="openPreview(doc)">{{ doc.originalName }}</div>
@@ -70,13 +70,28 @@
 
           <iframe v-else-if="previewKind === 'pdf'" :src="previewDoc.url" class="preview-iframe"></iframe>
 
-          <div v-else-if="previewKind === 'docx'" ref="docxContainer" class="preview-docx"></div>
+          <div v-else-if="previewHtml" class="preview-html-wrap">
+            <iframe class="preview-iframe" :srcdoc="previewHtml"></iframe>
+          </div>
 
-          <div v-else-if="previewKind === 'excel'" class="preview-excel" v-html="excelHtml"></div>
+          <div v-else-if="previewSheets.length" class="preview-excel">
+            <div class="sheet-tabs">
+              <button
+                v-for="(sheet, idx) in previewSheets"
+                :key="idx"
+                type="button"
+                :class="['sheet-tab', { 'sheet-tab--active': idx === activeSheet }]"
+                @click="activeSheet = idx"
+              >{{ sheet.name }}</button>
+            </div>
+            <iframe class="preview-iframe" :srcdoc="previewSheets[activeSheet].html"></iframe>
+          </div>
+
+          <div v-else-if="previewKind === 'docx'" ref="docxContainer" class="preview-docx"></div>
 
           <div v-else-if="previewKind === 'pptx'" ref="pptxContainer" class="preview-pptx"></div>
 
-          <pre v-else-if="previewKind === 'text'" class="preview-text">{{ textContent }}</pre>
+          <pre v-else-if="previewKind === 'text' || previewKind === 'ppt'" class="preview-text">{{ textContent }}</pre>
 
           <video v-else-if="previewKind === 'video'" :src="previewDoc.url" class="preview-video" controls></video>
 
@@ -95,9 +110,8 @@
 </template>
 
 <script>
-import { getDocuments, uploadDocument, deleteDocument } from '../api/index';
+import { getDocuments, uploadDocument, deleteDocument, getDocumentPreview } from '../api/index';
 import { renderAsync } from 'docx-preview';
-import * as XLSX from 'xlsx';
 import { init as initPptxPreview } from 'pptx-preview';
 import EmptyState from '../components/EmptyState.vue';
 
@@ -152,7 +166,9 @@ export default {
       previewDoc: null,
       previewKind: '',
       previewLoading: false,
-      excelHtml: '',
+      previewHtml: '',
+      previewSheets: [],
+      activeSheet: 0,
       textContent: '',
       pptxPreviewer: null
     };
@@ -229,8 +245,10 @@ export default {
 
     openPreview(doc) {
       this.previewDoc = doc;
-      this.previewKind = this.fileKind(doc.originalName);
-      this.excelHtml = '';
+      this.previewKind = this.fileKind(doc);
+      this.previewHtml = '';
+      this.previewSheets = [];
+      this.activeSheet = 0;
       this.textContent = '';
       this.previewLoading = true;
       this.$nextTick(() => this.loadPreviewContent());
@@ -243,17 +261,34 @@ export default {
         return;
       }
       try {
-        const response = await fetch(this.previewDoc.url);
-        if (!response.ok) throw new Error('HTTP ' + response.status);
-        const buf = await response.arrayBuffer();
+        // Office 等文档先请求服务端转换（可识别真实格式、保留 Excel 样式并支持多 sheet）
+        const res = await getDocumentPreview(this.previewDoc.id);
+        if (res.kind === 'doc') {
+          this.previewHtml = res.html || '';
+          this.previewLoading = false;
+          return;
+        }
+        if (res.kind === 'excel') {
+          this.previewSheets = res.sheets || [];
+          this.activeSheet = 0;
+          this.previewLoading = false;
+          return;
+        }
+        if (res.kind === 'ppt') {
+          this.textContent = res.text || '';
+          this.previewLoading = false;
+          return;
+        }
+        if (res.kind === 'error' || !res.success) {
+          throw new Error(res.message || '预览失败');
+        }
+
+        // 其余格式由前端渲染
+        const buf = await this.fetchArrayBuffer();
         if (kind === 'docx') {
           if (this.$refs.docxContainer) {
             await renderAsync(buf, this.$refs.docxContainer);
           }
-        } else if (kind === 'excel') {
-          const workbook = XLSX.read(new Uint8Array(buf), { type: 'array' });
-          const sheet = workbook.Sheets[workbook.SheetNames[0]];
-          this.excelHtml = XLSX.utils.sheet_to_html(sheet);
         } else if (kind === 'pptx') {
           if (this.$refs.pptxContainer) {
             this.destroyPptxPreviewer();
@@ -269,6 +304,12 @@ export default {
         this.previewLoading = false;
         this.$root.$emit('toast', { message: '预览加载失败，请下载后查看', type: 'error' });
       }
+    },
+
+    async fetchArrayBuffer() {
+      const response = await fetch(this.previewDoc.url);
+      if (!response.ok) throw new Error('HTTP ' + response.status);
+      return response.arrayBuffer();
     },
 
     decodeText(buf) {
@@ -288,7 +329,9 @@ export default {
       this.destroyPptxPreviewer();
       this.previewDoc = null;
       this.previewKind = '';
-      this.excelHtml = '';
+      this.previewHtml = '';
+      this.previewSheets = [];
+      this.activeSheet = 0;
       this.textContent = '';
     },
 
@@ -311,8 +354,8 @@ export default {
       return idx >= 0 ? name.substring(idx + 1).toLowerCase() : '';
     },
 
-    fileKind(name) {
-      const ext = this.getExtension(name);
+    fileKind(doc) {
+      const ext = (doc.ext || this.getExtension(doc.originalName || '')).toLowerCase();
       if (IMAGE_EXTS.includes(ext)) return 'image';
       if (ext === 'pdf') return 'pdf';
       if (ext === 'docx') return 'docx';
@@ -331,7 +374,7 @@ export default {
     },
 
     typeLabel(doc) {
-      const kind = this.fileKind(doc.originalName);
+      const kind = this.fileKind(doc);
       if (kind === 'other' && doc.contentType) {
         return doc.contentType.split(';')[0].split('/').pop().toUpperCase() || '文件';
       }
@@ -698,24 +741,59 @@ export default {
   background: #fff;
 }
 
-.preview-excel {
+.preview-html-wrap {
   width: 100%;
-  overflow: auto;
+  height: 100%;
   background: #fff;
   border-radius: 6px;
-  padding: 12px;
 }
 
-.preview-excel >>> table {
-  border-collapse: collapse;
+.preview-excel {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.sheet-tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-bottom: 1px solid #e5e7eb;
+  background: #fafafa;
+  flex-shrink: 0;
+  overflow-x: auto;
+}
+
+.sheet-tab {
+  padding: 4px 12px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
   font-size: 13px;
+  color: #6b7280;
+  cursor: pointer;
+  white-space: nowrap;
 }
 
-.preview-excel >>> table td,
-.preview-excel >>> table th {
+.sheet-tab:hover {
+  background: #f3f4f6;
+}
+
+.sheet-tab--active {
+  background: #eef2ff;
   border: 1px solid #e5e7eb;
-  padding: 6px 10px;
-  white-space: nowrap;
+  color: #4f46e5;
+  font-weight: 600;
+}
+
+.preview-excel .preview-iframe {
+  flex: 1;
+  border-radius: 0;
 }
 
 .preview-pptx {

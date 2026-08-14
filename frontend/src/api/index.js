@@ -103,4 +103,8 @@ export function deleteDocument(id) {
   return api.delete('/documents/' + id);
 }
 
+export function getDocumentPreview(id) {
+  return api.get('/documents/' + id + '/preview');
+}
+
 export default api;

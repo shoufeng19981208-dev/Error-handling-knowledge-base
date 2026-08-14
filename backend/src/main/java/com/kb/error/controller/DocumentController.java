@@ -2,6 +2,7 @@ package com.kb.error.controller;
 
 import com.kb.error.entity.DocumentFile;
 import com.kb.error.repository.DocumentFileRepository;
+import com.kb.error.service.OfficePreviewService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -16,6 +17,7 @@ import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -40,6 +42,9 @@ public class DocumentController {
     @Autowired
     private DocumentFileRepository documentFileRepository;
 
+    @Autowired
+    private OfficePreviewService officePreviewService;
+
     @Value("${file.upload.path:./uploads}")
     private String uploadPath;
 
@@ -51,6 +56,31 @@ public class DocumentController {
         List<Map<String, Object>> result = new ArrayList<>();
         for (DocumentFile doc : documentFileRepository.findAllByOrderByUploadTimeDesc()) {
             result.add(toVo(doc));
+        }
+        return result;
+    }
+
+    /**
+     * 文档预览转换（Office 文档服务端转 HTML，其他格式交由前端渲染）
+     */
+    @GetMapping("/{id}/preview")
+    public Map<String, Object> preview(@PathVariable Long id) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        DocumentFile doc = documentFileRepository.findById(id).orElse(null);
+        if (doc == null) {
+            result.put("success", false);
+            result.put("kind", "error");
+            result.put("message", "文档不存在");
+            return result;
+        }
+        try {
+            Path file = getDocumentDir().resolve(doc.getStoredName());
+            result.putAll(officePreviewService.preview(file, doc.getStoredName()));
+            result.put("success", true);
+        } catch (Exception e) {
+            result.put("success", false);
+            result.put("kind", "error");
+            result.put("message", "预览失败: " + e.getMessage());
         }
         return result;
     }
@@ -76,15 +106,25 @@ public class DocumentController {
             if (originalName.isEmpty()) {
                 originalName = "未命名文件";
             }
-            String ext = getExtension(originalName);
-            String storedName = UUID.randomUUID().toString() + ext;
+            String ext = getExtension(originalName).toLowerCase();
+            String base = UUID.randomUUID().toString();
+            String storedName = base + ext;
             Path target = documentDir.resolve(storedName);
             file.transferTo(target.toFile());
+
+            // 很多文件扩展名与实际格式不符（如 WPS 的 .doc 起名 .docx），按文件头纠正存储扩展名
+            String realExt = officePreviewService.sniffRealExtension(target, ext);
+            if (!realExt.equals(ext)) {
+                storedName = base + realExt;
+                Path corrected = documentDir.resolve(storedName);
+                Files.move(target, corrected);
+                target = corrected;
+            }
 
             DocumentFile doc = DocumentFile.builder()
                     .originalName(originalName)
                     .storedName(storedName)
-                    .contentType(resolveContentType(file, target, originalName))
+                    .contentType(resolveContentType(file, target, storedName))
                     .size(file.getSize())
                     .uploadTime(LocalDateTime.now())
                     .build();
@@ -135,6 +175,7 @@ public class DocumentController {
         vo.put("size", doc.getSize());
         vo.put("uploadTime", doc.getUploadTime());
         vo.put("url", "/uploads/" + DOCUMENTS_SUBDIR + "/" + doc.getStoredName());
+        vo.put("ext", extensionOf(doc.getStoredName()));
         return vo;
     }
 
@@ -160,7 +201,15 @@ public class DocumentController {
         return ext.length() > 20 ? "" : ext;
     }
 
-    private String resolveContentType(MultipartFile file, Path target, String originalName) {
+    private String extensionOf(String fileName) {
+        if (fileName == null) {
+            return "";
+        }
+        int idx = fileName.lastIndexOf('.');
+        return idx < 0 ? "" : fileName.substring(idx + 1).toLowerCase();
+    }
+
+    private String resolveContentType(MultipartFile file, Path target, String storedName) {
         String contentType = file.getContentType();
         if (contentType != null && !contentType.isEmpty() && !"application/octet-stream".equalsIgnoreCase(contentType)) {
             return contentType;
@@ -173,7 +222,7 @@ public class DocumentController {
         } catch (IOException ignored) {
             // fall through
         }
-        String lower = originalName.toLowerCase();
+        String lower = storedName.toLowerCase();
         if (lower.endsWith(".pdf")) {
             return "application/pdf";
         }
