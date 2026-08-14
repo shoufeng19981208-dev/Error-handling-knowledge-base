@@ -263,7 +263,7 @@ public class OfficePreviewService {
         StringBuilder html = new StringBuilder(4096);
         html.append("<html><head><meta charset=\"utf-8\"><style>")
                 .append("body{margin:0;font-family:-apple-system,'Segoe UI','Microsoft YaHei',sans-serif;font-size:13px;}")
-                .append("table{border-collapse:collapse;} td{white-space:nowrap;padding:4px 8px;}")
+                .append("table{border-collapse:collapse;} td{white-space:nowrap;padding:4px 8px;border:1px solid #d0d0d0;}")
                 .append("</style></head><body><table>");
 
         int maxCol = maxColumn(sheet);
