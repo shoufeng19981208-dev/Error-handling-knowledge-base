@@ -26,3 +26,9 @@ Thumbs.db
 
 # Office temp files
 ~$*
+
+# Local tool memory
+.workbuddy/memory/
+
+# User data exports
+/报错处理知识库-整理结果*.xlsx
