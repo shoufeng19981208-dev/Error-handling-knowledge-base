@@ -48,7 +48,7 @@
             v-for="item in matchItems"
             :key="item.record.id"
             class="record-card"
-            @click="$router.push('/detail/' + item.record.id)"
+            @click="openDetail(item.record)"
           >
             <div class="record-card-inner">
               <div class="record-main">
@@ -174,7 +174,7 @@
         v-for="record in records"
         :key="record.id"
         class="record-card"
-        @click="$router.push('/detail/' + record.id)"
+        @click="openDetail(record)"
       >
         <div class="record-card-inner">
           <div class="record-main">
@@ -328,6 +328,12 @@ export default {
       } catch (e) {
         console.error('获取待更新数量失败:', e);
       }
+    },
+    openDetail(record) {
+      this.$router.push({
+        path: '/detail/' + record.id,
+        query: { page: this.currentPage }
+      });
     },
     handleSearch() {
       if (!this.keyword.trim()) {

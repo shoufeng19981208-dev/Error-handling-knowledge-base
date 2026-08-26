@@ -318,7 +318,8 @@ export default {
       try {
         await updateRecord(this.$route.params.id, this.form);
         this.$root.$emit('toast', { message: '更新成功', type: 'success' });
-        this.$router.push('/detail/' + this.$route.params.id);
+        const query = this.$route.query.page ? { page: this.$route.query.page } : {};
+        this.$router.push({ path: '/detail/' + this.$route.params.id, query });
       } catch (e) {
         this.$root.$emit('toast', {
           message: '更新失败: ' + (e.response?.data?.message || e.message),

@@ -14,7 +14,7 @@
       <article class="detail-card">
         <!-- Action Bar -->
         <div class="action-bar">
-          <button class="btn-back" @click="$router.push('/')">
+          <button class="btn-back" @click="backToList">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <line x1="19" y1="12" x2="5" y2="12"/>
               <polyline points="12 19 5 12 12 5"/>
@@ -22,7 +22,7 @@
             返回列表
           </button>
           <div class="action-group">
-            <router-link :to="'/edit/' + record.id" class="btn btn-secondary">
+            <router-link :to="editLink" class="btn btn-secondary">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
                 <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
@@ -147,6 +147,12 @@ import LoadingSkeleton from '../components/LoadingSkeleton.vue';
 export default {
   name: 'Detail',
   components: { LoadingSkeleton },
+  computed: {
+    editLink() {
+      const query = this.$route.query.page ? { page: this.$route.query.page } : {};
+      return { path: '/edit/' + this.record.id, query };
+    }
+  },
   data() {
     return {
       record: null,
@@ -158,6 +164,10 @@ export default {
     this.fetchDetail();
   },
   methods: {
+    backToList() {
+      const query = this.$route.query.page ? { page: this.$route.query.page } : {};
+      this.$router.push({ path: '/', query });
+    },
     async fetchDetail() {
       this.loading = true;
       try {
@@ -174,7 +184,7 @@ export default {
       try {
         await deleteRecord(this.$route.params.id);
         this.$root.$emit('toast', { message: '删除成功', type: 'success' });
-        this.$router.push('/');
+        this.backToList();
       } catch (e) {
         this.$root.$emit('toast', {
           message: '删除失败: ' + (e.response?.data?.message || e.message),
