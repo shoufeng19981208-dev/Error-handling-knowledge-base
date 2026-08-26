@@ -58,8 +58,8 @@ public class ErrorRecordService {
         // 不能通过 Sort 传列名，否则 Spring Data 会按实体属性解析报 "No property 'update'"
         PageRequest pageRequest = PageRequest.of(page, size);
         if (!StringUtils.hasText(keyword)) {
-            // 空关键词：走 JPA 派生查询，用实体属性名 updateTime 降序（与原生 SQL 排序保持一致）
-            PageRequest sortedRequest = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "updateTime"));
+            // 空关键词：走 JPA 派生查询，用实体属性名 id 降序（与原生 SQL 排序保持一致）
+            PageRequest sortedRequest = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "id"));
             return errorRecordRepository.findAll(sortedRequest);
         }
         return errorRecordRepository.searchByKeyword(keyword.trim(), pageRequest);

@@ -20,7 +20,7 @@ public interface ErrorRecordRepository extends JpaRepository<ErrorRecord, Long> 
 
     /**
      * 模糊搜索：匹配标题、内容、关键字、分类
-     * 原生 SQL：使用 CONCAT 拼接通配符；排序已在 SQL 内完成（MySQL 列名 update_time）
+     * 原生 SQL：使用 CONCAT 拼接通配符；排序已在 SQL 内完成（按 id 降序）
      */
     @Query(value = "SELECT * FROM error_record e WHERE " +
             "e.error_title LIKE '%' || :keyword || '%' OR " +
@@ -28,7 +28,7 @@ public interface ErrorRecordRepository extends JpaRepository<ErrorRecord, Long> 
             "e.keywords LIKE '%' || :keyword || '%' OR " +
             "e.solution_steps LIKE '%' || :keyword || '%' OR " +
             "e.category LIKE '%' || :keyword || '%' " +
-            "ORDER BY e.update_time DESC",
+            "ORDER BY e.id DESC",
             countQuery = "SELECT COUNT(*) FROM error_record e WHERE " +
                     "e.error_title LIKE '%' || :keyword || '%' OR " +
                     "e.error_content LIKE '%' || :keyword || '%' OR " +
