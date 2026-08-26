@@ -299,10 +299,14 @@ export default {
     }
   },
   created() {
-    this.fetchRecords();
+    this.fetchRecords(this.pageFromQuery());
     this.fetchPendingCount();
   },
   methods: {
+    pageFromQuery() {
+      const page = parseInt(this.$route.query.page, 10);
+      return Number.isFinite(page) && page > 0 ? page : 0;
+    },
     async fetchRecords(page = 0) {
       this.loading = true;
       try {
@@ -358,6 +362,7 @@ export default {
       this.keyword = '';
       this.matchMode = false;
       this.matchResult = null;
+      this.$router.replace({ query: {} });
       this.fetchRecords(0);
       this.$nextTick(() => {
         if (this.$refs.searchInput) this.$refs.searchInput.focus();
@@ -415,6 +420,8 @@ export default {
     changePage(page) {
       if (page < 0 || page >= this.totalPages) return;
       this.fetchRecords(page);
+      // 把页码写进 URL，返回列表时仍停留在当前页而不是第 1 页
+      this.$router.replace({ query: { page } });
       window.scrollTo({ top: 0, behavior: 'smooth' });
     },
     truncateText(text, maxLen) {
