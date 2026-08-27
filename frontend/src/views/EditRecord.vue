@@ -232,7 +232,8 @@ export default {
       this.form.solutionSteps = record.solutionSteps || '';
       this.form.category = record.category || '';
       this.form.keywords = record.keywords || '';
-      this.form.updater = '';
+      // 更新人默认填充登记人名称（若登记人为空则回退到原更新人，保证输入框非空）
+      this.form.updater = record.registrar || record.updater || '';
       await this.fetchCategories();
     } catch (e) {
       console.error('加载记录失败:', e);
