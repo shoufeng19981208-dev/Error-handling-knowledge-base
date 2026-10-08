@@ -74,56 +74,7 @@
         <!-- 截图 -->
         <div class="form-group">
           <label class="form-label">报错截图</label>
-          <div class="screenshot-area">
-            <template v-if="form.errorScreenshot">
-              <div class="preview-card">
-                <img :src="form.errorScreenshot" class="preview-image" alt="当前截图" />
-                <div class="preview-actions">
-                  <span class="preview-label">当前截图</span>
-                  <div class="preview-actions-right">
-                    <label class="btn-replace">
-                      <input
-                        type="file"
-                        accept="image/*"
-                        class="file-input-hidden"
-                        @change="handleScreenshotUpload"
-                      />
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                        <polyline points="17 8 12 3 7 8"/>
-                        <line x1="12" y1="3" x2="12" y2="15"/>
-                      </svg>
-                      更换
-                    </label>
-                    <button type="button" class="btn-remove" @click="form.errorScreenshot = ''">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <line x1="18" y1="6" x2="6" y2="18"/>
-                        <line x1="6" y1="6" x2="18" y2="18"/>
-                      </svg>
-                      移除
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </template>
-            <template v-else>
-              <label class="upload-zone">
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-                  <circle cx="8.5" cy="8.5" r="1.5"/>
-                  <polyline points="21 15 16 10 5 21"/>
-                </svg>
-                <span class="upload-zone-text">点击上传截图</span>
-                <span class="upload-zone-hint">支持 PNG、JPG、GIF</span>
-                <input
-                  type="file"
-                  accept="image/*"
-                  class="file-input-hidden"
-                  @change="handleScreenshotUpload"
-                />
-              </label>
-            </template>
-          </div>
+          <ScreenshotUploader v-model="form.errorScreenshot" @uploading="uploading = $event" />
         </div>
 
         <!-- 处理步骤 -->
@@ -138,6 +89,9 @@
             rows="6"
             placeholder="按步骤顺序描述处理方案..."
           ></textarea>
+          <div :class="['status-preview', form.solutionSteps.trim() ? 'status-preview--ready' : 'status-preview--pending']">
+            保存后将标记为「{{ form.solutionSteps.trim() ? '已记录' : '待更新' }}」
+          </div>
         </div>
 
         <!-- 关键字 -->
@@ -184,7 +138,7 @@
           <button
             type="submit"
             class="btn btn-primary"
-            :disabled="submitting"
+            :disabled="submitting || uploading"
           >
             <template v-if="submitting">
               <span class="btn-spinner"></span>
@@ -201,10 +155,12 @@
 </template>
 
 <script>
-import { getRecordById, updateRecord, uploadScreenshot, getCategories, extractKeywords } from '../api/index';
+import { getRecordById, updateRecord, getCategories, extractKeywords } from '../api/index';
+import ScreenshotUploader from '../components/ScreenshotUploader.vue';
 
 export default {
   name: 'EditRecord',
+  components: { ScreenshotUploader },
   data() {
     return {
       form: {
@@ -220,7 +176,10 @@ export default {
       filteredCategories: [],
       showCategoryDropdown: false,
       submitting: false,
-      extracting: false
+      uploading: false,
+      extracting: false,
+      initialSnapshot: '',
+      allowNavigation: false
     };
   },
   async created() {
@@ -234,13 +193,31 @@ export default {
       this.form.keywords = record.keywords || '';
       // 更新人默认填充登记人名称（若登记人为空则回退到原更新人，保证输入框非空）
       this.form.updater = record.registrar || record.updater || '';
+      this.initialSnapshot = JSON.stringify(this.form);
       await this.fetchCategories();
     } catch (e) {
       console.error('加载记录失败:', e);
       this.$router.push('/');
     }
   },
+  mounted() {
+    window.addEventListener('keydown', this.handleShortcut);
+  },
+  beforeDestroy() {
+    window.removeEventListener('keydown', this.handleShortcut);
+  },
+  beforeRouteLeave(to, from, next) {
+    const changed = this.initialSnapshot && JSON.stringify(this.form) !== this.initialSnapshot;
+    if (!this.allowNavigation && changed && !window.confirm('修改尚未保存，确定离开吗？')) return next(false);
+    next();
+  },
   methods: {
+    handleShortcut(event) {
+      if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+        event.preventDefault();
+        this.handleSubmit();
+      }
+    },
     async handleExtractKeywords() {
       if (!this.form.errorContent || this.extracting) return;
       this.extracting = true;
@@ -292,24 +269,6 @@ export default {
     handleCategoryBlur() {
       setTimeout(() => { this.showCategoryDropdown = false; }, 200);
     },
-    async handleScreenshotUpload(e) {
-      const file = e.target.files[0];
-      if (!file) return;
-      try {
-        const res = await uploadScreenshot(file);
-        if (res.success) {
-          this.form.errorScreenshot = res.url;
-          this.$root.$emit('toast', { message: '截图上传成功', type: 'success' });
-        } else {
-          this.$root.$emit('toast', { message: '截图上传失败: ' + res.message, type: 'error' });
-        }
-      } catch (err) {
-        this.$root.$emit('toast', {
-          message: '截图上传失败: ' + (err.response?.data?.message || err.message),
-          type: 'error'
-        });
-      }
-    },
     async handleSubmit() {
       if (!this.form.errorTitle || !this.form.category) {
         this.$root.$emit('toast', { message: '请填写报错标题和所属分类', type: 'warning' });
@@ -318,6 +277,7 @@ export default {
       this.submitting = true;
       try {
         await updateRecord(this.$route.params.id, this.form);
+        this.allowNavigation = true;
         this.$root.$emit('toast', { message: '更新成功', type: 'success' });
         const query = this.$route.query.page ? { page: this.$route.query.page } : {};
         this.$router.push({ path: '/detail/' + this.$route.params.id, query });
@@ -335,6 +295,14 @@ export default {
 </script>
 
 <style scoped>
+.status-preview {
+  margin-top: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: var(--text-xs);
+}
+.status-preview--pending { color: var(--color-warning); background: var(--color-warning-bg); }
+.status-preview--ready { color: var(--color-success); background: var(--color-success-bg); }
 .form-page {
   max-width: 720px;
   margin: 0 auto;

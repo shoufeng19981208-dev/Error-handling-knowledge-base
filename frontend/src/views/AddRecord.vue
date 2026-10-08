@@ -75,59 +75,14 @@
         <!-- 截图上传 -->
         <div class="form-group">
           <label class="form-label">报错截图</label>
-          <div class="screenshot-area">
-            <template v-if="!screenshotPreview && !form.errorScreenshot">
-              <label class="upload-zone" @dragover.prevent @drop.prevent="handleDrop">
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-                  <circle cx="8.5" cy="8.5" r="1.5"/>
-                  <polyline points="21 15 16 10 5 21"/>
-                </svg>
-                <span class="upload-zone-text">点击或拖拽上传截图</span>
-                <span class="upload-zone-hint">支持 PNG、JPG、GIF</span>
-                <input
-                  ref="fileInput"
-                  type="file"
-                  accept="image/*"
-                  class="file-input-hidden"
-                  @change="handleFileChange"
-                />
-              </label>
-            </template>
-            <template v-else>
-              <div class="preview-card">
-                <img
-                  :src="screenshotPreview || form.errorScreenshot"
-                  class="preview-image"
-                  alt="截图预览"
-                />
-                <div class="preview-actions">
-                  <span class="preview-label">截图已{{ uploading ? '在上传中...' : '上传' }}</span>
-                  <button type="button" class="btn-remove" @click="removeScreenshot">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                      <line x1="18" y1="6" x2="6" y2="18"/>
-                      <line x1="6" y1="6" x2="18" y2="18"/>
-                    </svg>
-                    移除
-                  </button>
-                </div>
-                <input
-                  ref="fileInput"
-                  type="file"
-                  accept="image/*"
-                  class="file-input-hidden"
-                  @change="handleFileChange"
-                />
-              </div>
-            </template>
-          </div>
+          <ScreenshotUploader v-model="form.errorScreenshot" @uploading="uploading = $event" />
         </div>
 
         <!-- 处理步骤 -->
         <div class="form-group">
           <label class="form-label">
             处理步骤
-            <span class="form-hint">（暂不确定可留空，系统将标记为"待更新"）</span>
+            <span class="form-hint">（暂不确定可留空）</span>
           </label>
           <textarea
             v-model="form.solutionSteps"
@@ -135,6 +90,9 @@
             rows="6"
             placeholder="按步骤顺序描述处理方案..."
           ></textarea>
+          <div :class="['status-preview', form.solutionSteps.trim() ? 'status-preview--ready' : 'status-preview--pending']">
+            保存后将标记为「{{ form.solutionSteps.trim() ? '已记录' : '待更新' }}」
+          </div>
         </div>
 
         <!-- 关键字 -->
@@ -198,10 +156,12 @@
 </template>
 
 <script>
-import { createRecord, uploadScreenshot, getCategories, extractKeywords } from '../api/index';
+import { createRecord, getCategories, extractKeywords } from '../api/index';
+import ScreenshotUploader from '../components/ScreenshotUploader.vue';
 
 export default {
   name: 'AddRecord',
+  components: { ScreenshotUploader },
   data() {
     return {
       form: {
@@ -216,21 +176,40 @@ export default {
       submitting: false,
       uploading: false,
       extracting: false,
-      screenshotPreview: '',
       allCategories: [],
       filteredCategories: [],
-      showCategoryDropdown: false
+      showCategoryDropdown: false,
+      allowNavigation: false
     };
   },
   created() {
     this.fetchCategories();
-    this.applyPrefill();
+    if (!this.applyPrefill()) this.restoreDraft();
+  },
+  mounted() {
+    window.addEventListener('keydown', this.handleShortcut);
+  },
+  beforeDestroy() {
+    window.removeEventListener('keydown', this.handleShortcut);
+  },
+  watch: {
+    form: {
+      deep: true,
+      handler(value) {
+        localStorage.setItem('kb_record_draft', JSON.stringify(value));
+      }
+    }
+  },
+  beforeRouteLeave(to, from, next) {
+    const hasContent = Object.values(this.form).some(value => String(value || '').trim());
+    if (!this.allowNavigation && hasContent && !window.confirm('表单尚未保存，确定离开吗？草稿会为你保留。')) return next(false);
+    next();
   },
   methods: {
     applyPrefill() {
       // 首页智能匹配未命中时，「登记为待处理报错」带过来的预填内容
       const raw = sessionStorage.getItem('kb_prefill');
-      if (!raw) return;
+      if (!raw) return false;
       sessionStorage.removeItem('kb_prefill');
       try {
         const prefill = JSON.parse(raw);
@@ -241,8 +220,29 @@ export default {
           message: '已带入报错日志和识别出的关键字，选择分类后即可登记',
           type: 'info'
         });
+        return true;
       } catch (e) {
         console.error('读取预填内容失败:', e);
+        return false;
+      }
+    },
+    restoreDraft() {
+      const raw = localStorage.getItem('kb_record_draft');
+      if (!raw) return;
+      try {
+        const draft = JSON.parse(raw);
+        if (draft && Object.values(draft).some(value => String(value || '').trim())) {
+          this.form = { ...this.form, ...draft };
+          this.$toast('已恢复上次未提交的草稿', 'info');
+        }
+      } catch (e) {
+        localStorage.removeItem('kb_record_draft');
+      }
+    },
+    handleShortcut(event) {
+      if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+        event.preventDefault();
+        this.handleSubmit();
       }
     },
     async handleExtractKeywords() {
@@ -295,48 +295,6 @@ export default {
     handleCategoryBlur() {
       setTimeout(() => { this.showCategoryDropdown = false; }, 200);
     },
-    handleFileChange(e) {
-      const file = e.target.files[0];
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = (ev) => { this.screenshotPreview = ev.target.result; };
-      reader.readAsDataURL(file);
-      this.uploadFile(file);
-    },
-    handleDrop(e) {
-      const file = e.dataTransfer.files[0];
-      if (!file || !file.type.startsWith('image/')) return;
-      const reader = new FileReader();
-      reader.onload = (ev) => { this.screenshotPreview = ev.target.result; };
-      reader.readAsDataURL(file);
-      this.uploadFile(file);
-    },
-    async uploadFile(file) {
-      this.uploading = true;
-      try {
-        const res = await uploadScreenshot(file);
-        if (res.success) {
-          this.form.errorScreenshot = res.url;
-        } else {
-          this.$root.$emit('toast', { message: '截图上传失败: ' + res.message, type: 'error' });
-        }
-      } catch (e) {
-        this.$root.$emit('toast', {
-          message: '截图上传失败: ' + (e.response?.data?.message || e.message),
-          type: 'error'
-        });
-        this.screenshotPreview = '';
-      } finally {
-        this.uploading = false;
-      }
-    },
-    removeScreenshot() {
-      this.form.errorScreenshot = '';
-      this.screenshotPreview = '';
-      if (this.$refs.fileInput) {
-        this.$refs.fileInput.value = '';
-      }
-    },
     async handleSubmit() {
       if (!this.form.errorTitle || !this.form.category) {
         this.$root.$emit('toast', { message: '请填写报错标题和所属分类', type: 'warning' });
@@ -345,6 +303,8 @@ export default {
       this.submitting = true;
       try {
         await createRecord(this.form);
+        localStorage.removeItem('kb_record_draft');
+        this.allowNavigation = true;
         this.$root.$emit('toast', { message: '记录创建成功', type: 'success' });
         this.$router.push('/');
       } catch (e) {
@@ -361,6 +321,14 @@ export default {
 </script>
 
 <style scoped>
+.status-preview {
+  margin-top: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: var(--text-xs);
+}
+.status-preview--pending { color: var(--color-warning); background: var(--color-warning-bg); }
+.status-preview--ready { color: var(--color-success); background: var(--color-success-bg); }
 .form-page {
   max-width: 720px;
   margin: 0 auto;

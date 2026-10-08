@@ -49,33 +49,13 @@
           <span class="detail-category">{{ record.category }}</span>
         </header>
 
-        <!-- Error Content -->
-        <section class="detail-section">
-          <h2 class="section-title">报错内容</h2>
-          <div class="section-body">
-            <pre v-if="record.errorContent" class="content-text">{{ record.errorContent }}</pre>
-            <p v-else class="content-empty">暂无详细描述</p>
-          </div>
-        </section>
-
-        <!-- Screenshot -->
-        <section v-if="record.errorScreenshot" class="detail-section">
-          <h2 class="section-title">报错截图</h2>
-          <div class="section-body">
-            <img
-              :src="record.errorScreenshot"
-              class="screenshot-image"
-              alt="报错截图"
-              @click="previewImage(record.errorScreenshot)"
-            />
-            <p class="screenshot-hint">点击图片可放大查看</p>
-          </div>
-        </section>
-
         <!-- Solution Steps -->
-        <section class="detail-section">
-          <h2 class="section-title">处理步骤</h2>
-          <div class="section-body">
+        <section class="detail-section detail-section--solution">
+          <div class="section-heading">
+            <h2 class="section-title">处理方案</h2>
+            <button v-if="record.solutionSteps" type="button" class="copy-btn" @click="copySolution">复制方案</button>
+          </div>
+          <div class="section-body solution-body">
             <div v-if="record.solutionSteps" class="solution-text">{{ record.solutionSteps }}</div>
             <div v-else class="solution-empty">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -86,6 +66,29 @@
               暂无处理步骤，
               <router-link :to="'/edit/' + record.id" class="inline-link">点击补充</router-link>
             </div>
+          </div>
+        </section>
+
+        <!-- Error Content -->
+        <section class="detail-section">
+          <div class="section-heading">
+            <h2 class="section-title">原始报错</h2>
+            <button v-if="isLongContent" type="button" class="copy-btn" @click="contentExpanded = !contentExpanded">
+              {{ contentExpanded ? '收起日志' : '展开全部' }}
+            </button>
+          </div>
+          <div class="section-body">
+            <pre v-if="record.errorContent" :class="['content-text', { 'content-text--collapsed': isLongContent && !contentExpanded }]">{{ record.errorContent }}</pre>
+            <p v-else class="content-empty">暂无详细描述</p>
+          </div>
+        </section>
+
+        <!-- Screenshot -->
+        <section v-if="record.errorScreenshot" class="detail-section">
+          <h2 class="section-title">报错截图</h2>
+          <div class="section-body">
+            <img :src="record.errorScreenshot" class="screenshot-image" alt="报错截图" @click="previewImage(record.errorScreenshot)" />
+            <p class="screenshot-hint">点击图片可放大查看</p>
           </div>
         </section>
 
@@ -150,23 +153,32 @@ export default {
   computed: {
     editLink() {
       const query = this.$route.query.page ? { page: this.$route.query.page } : {};
-      return { path: '/edit/' + this.record.id, query };
+      return { path: '/edit/' + this.record.id, query: { ...this.$route.query, ...query } };
+    },
+    isLongContent() {
+      return !!(this.record && this.record.errorContent && (this.record.errorContent.length > 700 || this.record.errorContent.split('\n').length > 12));
     }
   },
   data() {
     return {
       record: null,
       loading: true,
-      previewImageUrl: ''
+      previewImageUrl: '',
+      contentExpanded: false
     };
   },
   created() {
     this.fetchDetail();
   },
+  mounted() {
+    window.addEventListener('keydown', this.handleKeydown);
+  },
+  beforeDestroy() {
+    window.removeEventListener('keydown', this.handleKeydown);
+  },
   methods: {
     backToList() {
-      const query = this.$route.query.page ? { page: this.$route.query.page } : {};
-      this.$router.push({ path: '/', query });
+      this.$router.push({ path: '/', query: { ...this.$route.query } });
     },
     async fetchDetail() {
       this.loading = true;
@@ -201,6 +213,17 @@ export default {
     },
     closePreview() {
       this.previewImageUrl = '';
+    },
+    async copySolution() {
+      try {
+        await navigator.clipboard.writeText(this.record.solutionSteps || '');
+        this.$toast('处理方案已复制', 'success');
+      } catch (e) {
+        this.$toast('复制失败，请手动选中文本复制', 'error');
+      }
+    },
+    handleKeydown(event) {
+      if (event.key === 'Escape') this.closePreview();
     }
   },
   filters: {
@@ -400,6 +423,33 @@ export default {
   border-left: 3px solid var(--color-primary-400);
 }
 
+.section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-3);
+}
+
+.section-heading .section-title {
+  margin-bottom: 0;
+}
+
+.copy-btn {
+  border: 0;
+  background: transparent;
+  color: var(--color-primary-600);
+  font-size: var(--text-xs);
+  font-family: var(--font-sans);
+  cursor: pointer;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+}
+
+.copy-btn:hover { background: var(--color-primary-50); }
+
+.detail-section--solution .section-title { border-left-color: var(--color-success); }
+.solution-body { background: var(--color-success-bg); border-color: var(--color-success-border); }
+
 .section-body {
   background: var(--color-neutral-50);
   border: 1px solid var(--border-light);
@@ -416,6 +466,13 @@ export default {
   white-space: pre-wrap;
   word-break: break-word;
   margin: 0;
+}
+
+.content-text--collapsed {
+  max-height: 250px;
+  overflow: hidden;
+  position: relative;
+  mask-image: linear-gradient(to bottom, #000 75%, transparent 100%);
 }
 
 .content-empty {

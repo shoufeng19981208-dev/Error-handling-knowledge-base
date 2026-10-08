@@ -22,8 +22,8 @@
             <line x1="6" y1="6" x2="18" y2="18"/>
           </svg>
         </button>
-        <button class="search-btn" @click="handleSearch">
-          匹配
+        <button class="search-btn" :disabled="matching" @click="handleSearch">
+          {{ matching ? '匹配中…' : '开始匹配' }}
         </button>
       </div>
       <p class="search-hint">复制报错日志后直接 Ctrl+V 粘贴，自动识别特征并匹配，无需自己提炼关键词（Shift+Enter 换行）</p>
@@ -96,15 +96,25 @@
     <!-- Browse Mode (浏览模式) -->
     <template v-if="!matchMode">
     <!-- Stats Bar -->
-    <div class="stats-bar">
-      <div class="stat-card">
-        <span class="stat-value">{{ totalElements }}</span>
-        <span class="stat-label">记录总数</span>
+    <div class="workspace-heading">
+      <div>
+        <h1>知识工作台</h1>
+        <p>浏览已沉淀的方案，或优先补齐待更新记录</p>
       </div>
-      <div class="stat-card stat-card--warning">
+    </div>
+    <div class="stats-bar">
+      <button :class="['stat-card', { 'stat-card--active': statusFilter === 'ALL' }]" @click="switchStatus('ALL')">
+        <span class="stat-value">{{ totalElements }}</span>
+        <span class="stat-label">全部知识</span>
+      </button>
+      <button class="stat-card stat-card--success" @click="switchStatus('ALL')">
+        <span class="stat-value">{{ Math.max(totalElements - pendingCount, 0) }}</span>
+        <span class="stat-label">已有方案</span>
+      </button>
+      <button :class="['stat-card', 'stat-card--warning', { 'stat-card--active': statusFilter === 'PENDING' }]" @click="switchStatus('PENDING')">
         <span class="stat-value">{{ pendingCount }}</span>
         <span class="stat-label">待更新</span>
-      </div>
+      </button>
       <div class="stats-spacer"></div>
       <button
         :class="['stats-action', 'stats-action--btn', { 'stats-action--active': importPanelOpen }]"
@@ -162,8 +172,8 @@
     <!-- Empty State -->
     <EmptyState
       v-else-if="!loading && records.length === 0"
-      title="暂无记录"
-      description="还没有报错记录，快去添加第一条吧"
+      :title="statusFilter === 'PENDING' ? '没有待更新记录' : '暂无记录'"
+      :description="statusFilter === 'PENDING' ? '当前所有知识都已有处理方案' : '还没有报错记录，快去添加第一条吧'"
     >
       <router-link to="/add" class="empty-action">新增记录</router-link>
     </EmptyState>
@@ -259,7 +269,9 @@ export default {
       matchResult: null,
       importPanelOpen: false,
       importing: false,
-      importResult: null
+      importResult: null,
+      statusFilter: 'ALL',
+      requestSequence: 0
     };
   },
   computed: {
@@ -298,9 +310,21 @@ export default {
       return pages;
     }
   },
-  created() {
-    this.fetchRecords(this.pageFromQuery());
+  async created() {
+    this.keyword = typeof this.$route.query.keyword === 'string' ? this.$route.query.keyword : '';
+    if (this.keyword.trim()) {
+      this.runMatch();
+    } else {
+      await this.fetchRecords(this.pageFromQuery());
+      if (this.$route.query.status === 'pending') await this.switchStatus('PENDING');
+    }
     this.fetchPendingCount();
+  },
+  mounted() {
+    window.addEventListener('keydown', this.handleGlobalShortcut);
+  },
+  beforeDestroy() {
+    window.removeEventListener('keydown', this.handleGlobalShortcut);
   },
   methods: {
     pageFromQuery() {
@@ -308,17 +332,20 @@ export default {
       return Number.isFinite(page) && page > 0 ? page : 0;
     },
     async fetchRecords(page = 0) {
+      const requestId = ++this.requestSequence;
       this.loading = true;
       try {
         const res = await searchRecords(this.keyword, page, 10);
+        if (requestId !== this.requestSequence) return;
         this.records = res.content || [];
         this.totalPages = res.totalPages || 0;
         this.totalElements = res.totalElements || 0;
         this.currentPage = res.currentPage || 0;
       } catch (e) {
         console.error('搜索失败:', e);
+        this.$toast('加载记录失败，请稍后重试', 'error');
       } finally {
-        this.loading = false;
+        if (requestId === this.requestSequence) this.loading = false;
       }
     },
     async fetchPendingCount() {
@@ -332,7 +359,7 @@ export default {
     openDetail(record) {
       this.$router.push({
         path: '/detail/' + record.id,
-        query: { page: this.currentPage }
+        query: { ...this.$route.query, page: this.currentPage }
       });
     },
     handleSearch() {
@@ -353,21 +380,25 @@ export default {
     async runMatch() {
       const text = this.keyword.trim();
       if (!text) return;
+      const requestId = ++this.requestSequence;
       this.matchMode = true;
       this.matching = true;
+      this.$router.replace({ query: { keyword: text } }).catch(() => {});
       try {
-        this.matchResult = await matchLog(text);
+        const result = await matchLog(text);
+        if (requestId === this.requestSequence) this.matchResult = result;
       } catch (e) {
         console.error('匹配失败:', e);
         this.$root.$emit('toast', { message: '匹配失败，请稍后重试', type: 'error' });
       } finally {
-        this.matching = false;
+        if (requestId === this.requestSequence) this.matching = false;
       }
     },
     clearSearch() {
       this.keyword = '';
       this.matchMode = false;
       this.matchResult = null;
+      this.statusFilter = 'ALL';
       this.$router.replace({ query: {} });
       this.fetchRecords(0);
       this.$nextTick(() => {
@@ -427,8 +458,38 @@ export default {
       if (page < 0 || page >= this.totalPages) return;
       this.fetchRecords(page);
       // 把页码写进 URL，返回列表时仍停留在当前页而不是第 1 页
-      this.$router.replace({ query: { page } });
+      this.$router.replace({ query: { ...this.$route.query, page } });
       window.scrollTo({ top: 0, behavior: 'smooth' });
+    },
+    async switchStatus(status) {
+      if (this.statusFilter === status && status !== 'ALL') return;
+      this.statusFilter = status;
+      this.matchMode = false;
+      this.keyword = '';
+      this.$router.replace({ query: status === 'PENDING' ? { status: 'pending' } : {} }).catch(() => {});
+      if (status === 'PENDING') {
+        const requestId = ++this.requestSequence;
+        this.loading = true;
+        try {
+          this.records = (await getPendingList()) || [];
+          if (requestId !== this.requestSequence) return;
+          this.currentPage = 0;
+          this.totalPages = 1;
+        } catch (e) {
+          this.$toast('加载待更新记录失败', 'error');
+        } finally {
+          if (requestId === this.requestSequence) this.loading = false;
+        }
+      } else {
+        this.fetchRecords(0);
+      }
+    },
+    handleGlobalShortcut(event) {
+      const tag = event.target && event.target.tagName;
+      if (event.key === '/' && !['INPUT', 'TEXTAREA'].includes(tag)) {
+        event.preventDefault();
+        this.$refs.searchInput && this.$refs.searchInput.focus();
+      }
     },
     truncateText(text, maxLen) {
       if (!text) return '';
@@ -516,6 +577,11 @@ export default {
   background: var(--btn-primary-hover);
 }
 
+.search-btn:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+
 .search-btn:active {
   background: var(--btn-primary-active);
   transform: scale(0.98);
@@ -529,6 +595,23 @@ export default {
 }
 
 /* === Stats Bar === */
+.workspace-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  margin-bottom: var(--space-4);
+}
+
+.workspace-heading h1 {
+  font-size: var(--text-xl);
+  margin-bottom: 2px;
+}
+
+.workspace-heading p {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+}
+
 .stats-bar {
   display: flex;
   align-items: center;
@@ -544,6 +627,16 @@ export default {
   border: 1px solid var(--border-light);
   border-radius: var(--radius-lg);
   padding: var(--space-3) var(--space-4);
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.stat-card:hover,
+.stat-card--active {
+  border-color: var(--color-primary-300);
+  box-shadow: 0 0 0 2px var(--color-primary-50);
+  transform: translateY(-1px);
 }
 
 .stat-value {
@@ -560,6 +653,10 @@ export default {
 
 .stat-card--warning .stat-value {
   color: var(--color-warning);
+}
+
+.stat-card--success .stat-value {
+  color: var(--color-success);
 }
 
 .stats-spacer {

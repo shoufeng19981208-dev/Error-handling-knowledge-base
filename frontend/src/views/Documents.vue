@@ -28,12 +28,33 @@
       </div>
     </div>
 
+    <div class="doc-toolbar">
+      <div class="doc-search-wrap">
+        <span>⌕</span>
+        <input v-model.trim="documentQuery" type="search" placeholder="按文件名搜索…" />
+      </div>
+      <select v-model="kindFilter" aria-label="按文件类型筛选">
+        <option value="all">全部类型</option>
+        <option value="office">Office 文档</option>
+        <option value="pdf">PDF</option>
+        <option value="image">图片</option>
+        <option value="text">文本</option>
+        <option value="media">音视频</option>
+      </select>
+      <select v-model="sortBy" aria-label="文档排序">
+        <option value="time">最近上传</option>
+        <option value="name">文件名</option>
+        <option value="size">文件大小</option>
+      </select>
+      <span class="doc-count">{{ filteredDocuments.length }} 个文档</span>
+    </div>
+
     <!-- List -->
     <div v-if="loading" class="doc-loading">加载中...</div>
 
     <template v-else>
-      <div v-if="documents.length" class="doc-list">
-        <div v-for="doc in documents" :key="doc.id" class="doc-item">
+      <div v-if="filteredDocuments.length" class="doc-list">
+        <div v-for="doc in filteredDocuments" :key="doc.id" class="doc-item">
           <div class="doc-icon" :class="'doc-icon--' + fileKind(doc)">
             <span>{{ iconLabel(fileKind(doc)) }}</span>
           </div>
@@ -61,6 +82,8 @@
         <div class="preview-header">
           <div class="preview-title" :title="previewDoc.originalName">{{ previewDoc.originalName }}</div>
           <div class="preview-header-actions">
+            <button type="button" class="preview-nav" :disabled="previewIndex <= 0" @click="openAdjacent(-1)">上一个</button>
+            <button type="button" class="preview-nav" :disabled="previewIndex >= filteredDocuments.length - 1" @click="openAdjacent(1)">下一个</button>
             <a class="preview-download" :href="previewDoc.url" :download="previewDoc.originalName">下载</a>
             <button type="button" class="preview-close" @click="closePreview">×</button>
           </div>
@@ -113,8 +136,6 @@
 
 <script>
 import { getDocuments, uploadDocument, deleteDocument, getDocumentPreview } from '../api/index';
-import { renderAsync } from 'docx-preview';
-import { init as initPptxPreview } from 'pptx-preview';
 import EmptyState from '../components/EmptyState.vue';
 
 const IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg', 'ico', 'avif'];
@@ -165,6 +186,9 @@ export default {
       uploadingName: '',
       uploadingPercent: 0,
       documents: [],
+      documentQuery: '',
+      kindFilter: 'all',
+      sortBy: 'time',
       previewDoc: null,
       previewKind: '',
       previewLoading: false,
@@ -178,6 +202,34 @@ export default {
   },
   created() {
     this.fetchList();
+  },
+  mounted() {
+    window.addEventListener('keydown', this.handlePreviewKeydown);
+  },
+  beforeDestroy() {
+    window.removeEventListener('keydown', this.handlePreviewKeydown);
+    this.destroyPptxPreviewer();
+  },
+  computed: {
+    filteredDocuments() {
+      const query = this.documentQuery.toLowerCase();
+      const matchesKind = doc => {
+        const kind = this.fileKind(doc);
+        if (this.kindFilter === 'all') return true;
+        if (this.kindFilter === 'office') return ['docx', 'word', 'excel', 'pptx', 'ppt'].includes(kind);
+        if (this.kindFilter === 'media') return ['video', 'audio'].includes(kind);
+        return kind === this.kindFilter;
+      };
+      const list = this.documents.filter(doc => (!query || (doc.originalName || '').toLowerCase().includes(query)) && matchesKind(doc));
+      return list.slice().sort((a, b) => {
+        if (this.sortBy === 'name') return (a.originalName || '').localeCompare(b.originalName || '', 'zh-CN');
+        if (this.sortBy === 'size') return (b.size || 0) - (a.size || 0);
+        return String(b.uploadTime || '').localeCompare(String(a.uploadTime || ''));
+      });
+    },
+    previewIndex() {
+      return this.previewDoc ? this.filteredDocuments.findIndex(doc => doc.id === this.previewDoc.id) : -1;
+    }
   },
   methods: {
     async fetchList() {
@@ -296,11 +348,13 @@ export default {
         const buf = await this.fetchArrayBuffer();
         if (kind === 'docx') {
           if (this.$refs.docxContainer) {
+            const { renderAsync } = await import('docx-preview');
             await renderAsync(buf, this.$refs.docxContainer);
           }
         } else if (kind === 'pptx') {
           if (this.$refs.pptxContainer) {
             this.destroyPptxPreviewer();
+            const { init: initPptxPreview } = await import('pptx-preview');
             this.pptxPreviewer = initPptxPreview(this.$refs.pptxContainer, { width: 960, height: 540 });
             await this.pptxPreviewer.preview(buf);
           }
@@ -343,6 +397,18 @@ export default {
       this.previewSheets = [];
       this.activeSheet = 0;
       this.textContent = '';
+    },
+
+    openAdjacent(offset) {
+      const target = this.filteredDocuments[this.previewIndex + offset];
+      if (target) this.openPreview(target);
+    },
+
+    handlePreviewKeydown(event) {
+      if (!this.previewDoc) return;
+      if (event.key === 'Escape') this.closePreview();
+      if (event.key === 'ArrowLeft') this.openAdjacent(-1);
+      if (event.key === 'ArrowRight') this.openAdjacent(1);
     },
 
     destroyPptxPreviewer() {
@@ -421,6 +487,33 @@ export default {
   margin-bottom: 20px;
 }
 
+.doc-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 18px 0 12px;
+}
+
+.doc-search-wrap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 180px;
+  padding: 0 12px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  background: white;
+  color: var(--text-tertiary);
+}
+
+.doc-search-wrap:focus-within { border-color: var(--color-primary-400); box-shadow: 0 0 0 3px var(--input-focus-ring); }
+.doc-search-wrap input { width: 100%; padding: 9px 0; border: 0; outline: 0; font: inherit; }
+.doc-toolbar select { padding: 9px 30px 9px 10px; border: 1px solid var(--border-light); border-radius: var(--radius-md); background: white; color: var(--text-secondary); font: inherit; }
+.doc-count { white-space: nowrap; font-size: var(--text-xs); color: var(--text-tertiary); }
+.preview-nav { border: 0; background: transparent; color: var(--color-primary-600); font: inherit; font-size: var(--text-xs); cursor: pointer; }
+.preview-nav:disabled { opacity: .35; cursor: default; }
+
 .page-title {
   margin: 0 0 4px;
   font-size: 22px;
@@ -432,6 +525,12 @@ export default {
   color: #6b7280;
   font-size: 13px;
   line-height: 1.5;
+}
+
+@media (max-width: 720px) {
+  .doc-toolbar { flex-wrap: wrap; }
+  .doc-search-wrap { flex-basis: 100%; }
+  .doc-count { margin-left: auto; }
 }
 
 .btn-primary {
